@@ -197,6 +197,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "runtime-format"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b035308411b1af4683acc4fc928366443f08b893bb73e235c85de4c2be572495"
+dependencies = [
+ "tinyvec",
+]
+
+[[package]]
 name = "rustc_version"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -282,6 +291,7 @@ name = "trustrl"
 version = "0.1.0"
 dependencies = [
  "rstest",
+ "runtime-format",
  "thiserror",
  "url",
 ]

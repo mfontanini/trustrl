@@ -5,6 +5,7 @@ edition = "2021"
 author = "Matias Fontanini"
 
 [dependencies]
+runtime-format = "0.1.2"
 thiserror = "1"
 url = "2.3.1"
 
