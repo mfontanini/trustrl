@@ -48,6 +48,10 @@ struct Cli {
     /// Append a new segment at the end of the path.
     #[clap(short = 'a', long, group = "paths")]
     append_path: Option<String>,
+
+    /// Sort query string.
+    #[clap(short = 'q', long)]
+    sort_query_string: bool,
 }
 
 #[cfg(test)]
@@ -80,6 +84,7 @@ fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
         .chain(cli.fragment.as_deref().map(optional_string).map(UrlTransformation::SetFragment).into_iter())
         .chain(cli.redirect.as_deref().map(UrlTransformation::Redirect).into_iter())
         .chain(cli.append_path.as_deref().map(UrlTransformation::AppendPath).into_iter())
+        .chain(cli.sort_query_string.then(|| UrlTransformation::SortQueryString).into_iter())
         .collect()
 }
 

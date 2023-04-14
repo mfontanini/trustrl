@@ -41,6 +41,9 @@ pub enum UrlTransformation<'a> {
 
     /// Append a new query string key/value pair.
     AppendQuery(&'a str, &'a str),
+
+    /// Sort the query string.
+    SortQueryString,
 }
 
 impl<'a> UrlTransformation<'a> {
@@ -99,6 +102,7 @@ impl<'a> UrlTransformation<'a> {
             AppendQuery(name, value) => {
                 url.query_pairs_mut().append_pair(name, value);
             }
+            SortQueryString => url = Self::sort_query_string(url),
         };
         Ok(url)
     }
@@ -114,6 +118,17 @@ impl<'a> UrlTransformation<'a> {
         let rest = url.split_once(':').ok_or(Transform("scheme"))?.1;
         let url = format!("{scheme}:{rest}");
         Url::parse(&url).map_err(|_| Transform("scheme"))
+    }
+
+    fn sort_query_string(mut url: Url) -> Url {
+        let mut key_values: Vec<_> = url.query_pairs().into_owned().collect();
+        // This otherwise creates an empty query string.
+        if key_values.is_empty() {
+            return url;
+        }
+        key_values.sort();
+        url.query_pairs_mut().clear().extend_pairs(key_values.into_iter()).finish();
+        url
     }
 }
 
@@ -165,6 +180,8 @@ mod tests {
         "http://foo.com/bar?side=nuggets",
         "http://foo.com/bar?side=nuggets&side=potato"
     )]
+    #[case::sort_query_string(SortQueryString, "http://foo.com/bar?b=1&a=2&c=3", "http://foo.com/bar?a=2&b=1&c=3")]
+    #[case::sort_empty_query_string(SortQueryString, "http://foo.com/", "http://foo.com/")]
     fn transformations(#[case] transformation: UrlTransformation, #[case] input_url: &str, #[case] expected_url: &str) {
         let input_url = Url::parse(input_url).expect("invalid input url");
 
