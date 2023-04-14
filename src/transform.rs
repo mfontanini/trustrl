@@ -63,9 +63,7 @@ impl<'a> UrlTransformation<'a> {
         use TransformError::*;
         use UrlTransformation::*;
         match *self {
-            SetScheme(scheme) => {
-                url.set_scheme(scheme).map_err(|_| Transform("scheme"))?;
-            }
+            SetScheme(scheme) => url = Self::set_scheme(url, scheme)?,
             SetHost(host) => {
                 url.set_host(Some(host)).map_err(|e| Parse("host", e))?;
             }
@@ -104,6 +102,19 @@ impl<'a> UrlTransformation<'a> {
         };
         Ok(url)
     }
+
+    fn set_scheme(mut url: Url, scheme: &str) -> Result<Url, TransformError> {
+        if url.set_scheme(scheme).is_ok() {
+            return Ok(url);
+        }
+        // `Url::set_scheme` is very picky about which scheme transitions are valid. So if the initial
+        // attempt to set the scheme fails, we replace it by hand and re-parse the URL.
+        use TransformError::Transform;
+        let url = url.to_string();
+        let rest = url.split_once(':').ok_or(Transform("scheme"))?.1;
+        let url = format!("{scheme}:{rest}");
+        Url::parse(&url).map_err(|_| Transform("scheme"))
+    }
 }
 
 /// An error during the application of a transformation.
@@ -125,13 +136,14 @@ mod tests {
     use UrlTransformation::*;
 
     #[rstest]
-    #[case::scheme(SetScheme("https"), "http://foo.com", "https://foo.com")]
-    #[case::host(SetHost("bar.com"), "http://foo.com", "http://bar.com")]
-    #[case::port(SetPort(8080), "http://foo.com", "http://foo.com:8080")]
+    #[case::scheme(SetScheme("https"), "http://foo.com", "https://foo.com/")]
+    #[case::scheme_to_other(SetScheme("potato"), "http://foo.com", "potato://foo.com/")]
+    #[case::host(SetHost("bar.com"), "http://foo.com", "http://bar.com/")]
+    #[case::port(SetPort(8080), "http://foo.com", "http://foo.com:8080/")]
     #[case::path(SetPath("/potato"), "http://foo.com/bar/zar", "http://foo.com/potato")]
-    #[case::user(SetUser("me"), "http://foo.com", "http://me@foo.com")]
-    #[case::password(SetPassword(Some("secret")), "http://me@foo.com", "http://me:secret@foo.com")]
-    #[case::no_password(SetPassword(None), "http://me:secret@foo.com", "http://me@foo.com")]
+    #[case::user(SetUser("me"), "http://foo.com", "http://me@foo.com/")]
+    #[case::password(SetPassword(Some("secret")), "http://me@foo.com", "http://me:secret@foo.com/")]
+    #[case::no_password(SetPassword(None), "http://me:secret@foo.com", "http://me@foo.com/")]
     #[case::fragment(SetFragment(Some("needle")), "http://foo.com/hello", "http://foo.com/hello#needle")]
     #[case::no_fragment(SetFragment(None), "http://foo.com/hello#needle", "http://foo.com/hello")]
     #[case::redirect_relative(Redirect("potato"), "http://foo.com/bar/zar", "http://foo.com/bar/potato")]
@@ -155,9 +167,8 @@ mod tests {
     )]
     fn transformations(#[case] transformation: UrlTransformation, #[case] input_url: &str, #[case] expected_url: &str) {
         let input_url = Url::parse(input_url).expect("invalid input url");
-        let expected_url = Url::parse(expected_url).expect("invalid input url");
 
         let transformed_url = transformation.apply(input_url).expect("transformation failed");
-        assert_eq!(transformed_url, expected_url, "failed for {transformation:?}");
+        assert_eq!(transformed_url.to_string(), expected_url, "failed for {transformation:?}");
     }
 }
