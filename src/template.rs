@@ -138,7 +138,7 @@ impl<'a> PortFormatter<'a> {
 }
 
 #[cfg(test)]
-mod test {
+mod tests {
     use super::*;
     use rstest::rstest;
 

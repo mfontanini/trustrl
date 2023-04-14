@@ -2,9 +2,10 @@
 name = "trustrl"
 version = "0.1.0"
 edition = "2021"
-author = "Matias Fontanini"
+authors = ["Matias Fontanini"]
 
 [dependencies]
+clap = { version = "4.2.1", features = ["derive"] }
 runtime-format = "0.1.2"
 thiserror = "1"
 url = "2.3.1"
