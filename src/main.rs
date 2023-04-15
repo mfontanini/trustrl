@@ -113,13 +113,63 @@ fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
         .collect()
 }
 
-struct Processor<'a> {
+enum RenderMode {
+    Single,
+    JsonList { count: usize },
+}
+
+struct RenderContext<'a, W: Write> {
     renderer: UrlRenderer<'a>,
+    writer: W,
+    mode: RenderMode,
+}
+
+impl<'a, W: Write> RenderContext<'a, W> {
+    fn new_single_line(renderer: UrlRenderer<'a>, writer: W) -> Self {
+        Self { renderer, writer, mode: RenderMode::Single }
+    }
+
+    fn new_json_list(renderer: UrlRenderer<'a>, writer: W) -> Self {
+        Self { renderer, writer, mode: RenderMode::JsonList { count: 0 } }
+    }
+
+    fn render(&mut self, url: &Url) -> Result<(), Box<dyn std::error::Error>> {
+        use RenderMode::JsonList;
+        match self.mode {
+            JsonList { count: 0 } => write!(self.writer, "[")?,
+            JsonList { .. } => write!(self.writer, ", ")?,
+            _ => (),
+        };
+        if matches!(self.mode, RenderMode::JsonList { count: 0 }) {}
+        self.renderer.render(url, &mut self.writer)?;
+        if let RenderMode::JsonList { count } = &mut self.mode {
+            *count += 1;
+        } else {
+            writeln!(self.writer)?;
+        }
+        Ok(())
+    }
+}
+
+impl<'a, W: Write> Drop for RenderContext<'a, W> {
+    fn drop(&mut self) {
+        if matches!(self.mode, RenderMode::JsonList { .. }) {
+            let _ = writeln!(self.writer, "]");
+        }
+    }
+}
+
+struct Processor<'a, W: Write> {
+    context: RenderContext<'a, W>,
     transformations: Vec<UrlTransformation<'a>>,
 }
 
-impl<'a> Processor<'a> {
-    fn process_url<W: Write>(&self, url: &str, writer: &mut W) {
+impl<'a, W: Write> Processor<'a, W> {
+    fn new(context: RenderContext<'a, W>, transformations: Vec<UrlTransformation<'a>>) -> Self {
+        Self { context, transformations }
+    }
+
+    fn process_url(&mut self, url: &str) {
         let url = match parse_url(url) {
             Ok(url) => url,
             Err(e) => {
@@ -128,12 +178,12 @@ impl<'a> Processor<'a> {
             }
         };
         match self.transform(url) {
-            Ok(url) => self.render(&url, writer),
+            Ok(url) => self.render(&url),
             Err(e) => eprintln!("Error performing transformations: {e}"),
         };
     }
 
-    fn process_url_file<W: Write>(&self, path: &Path, writer: &mut W) {
+    fn process_url_file(&mut self, path: &Path) {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(e) => {
@@ -144,7 +194,7 @@ impl<'a> Processor<'a> {
         let file = BufReader::new(file);
         for line in file.lines() {
             match line {
-                Ok(line) => self.process_url(&line, writer),
+                Ok(line) => self.process_url(&line),
                 Err(e) => {
                     eprintln!("Failed to read file: {e}");
                     exit(1);
@@ -160,11 +210,10 @@ impl<'a> Processor<'a> {
         Ok(url)
     }
 
-    fn render<W: Write>(&self, url: &Url, writer: &mut W) {
-        if let Err(e) = self.renderer.render(url, writer) {
+    fn render(&mut self, url: &Url) {
+        if let Err(e) = self.context.render(url) {
             eprintln!("Rendering failed: {e}");
         }
-        let _ = writeln!(writer);
     }
 }
 
@@ -175,11 +224,16 @@ fn main() {
         false => UrlRenderer::templated(&cli.template),
     };
     let transformations = build_transformations(&cli);
-    let processor = Processor { renderer, transformations };
-    let mut stdout = BufWriter::new(io::stdout().lock());
+    let stdout = BufWriter::new(io::stdout().lock());
+    let render_json_list = cli.output_json && cli.input.urls_file_path.is_some();
+    let context = match render_json_list {
+        true => RenderContext::new_json_list(renderer, stdout),
+        false => RenderContext::new_single_line(renderer, stdout),
+    };
+    let mut processor = Processor::new(context, transformations);
     match (&cli.input.url, &cli.input.urls_file_path) {
-        (Some(url), _) => processor.process_url(url, &mut stdout),
-        (None, Some(path)) => processor.process_url_file(path, &mut stdout),
+        (Some(url), _) => processor.process_url(url),
+        (None, Some(path)) => processor.process_url_file(path),
         _ => unreachable!(),
     };
 }

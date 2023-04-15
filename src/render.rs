@@ -1,4 +1,4 @@
-//! URL templates.
+//! URL rendering.
 
 use runtime_format::{FormatArgs, FormatKey, FormatKeyError};
 use serde::Serialize;
