@@ -1,7 +1,7 @@
 use clap::{error::ErrorKind, Args, CommandFactory, Parser};
 use std::{
     fs::File,
-    io::{BufRead, BufReader},
+    io::{self, BufRead, BufReader, BufWriter, Write},
     iter,
     path::{Path, PathBuf},
     process::exit,
@@ -119,7 +119,7 @@ struct Processor<'a> {
 }
 
 impl<'a> Processor<'a> {
-    fn process_url(&self, url: &str) {
+    fn process_url<W: Write>(&self, url: &str, writer: &mut W) {
         let url = match parse_url(url) {
             Ok(url) => url,
             Err(e) => {
@@ -128,12 +128,12 @@ impl<'a> Processor<'a> {
             }
         };
         match self.transform(url) {
-            Ok(url) => self.render(&url),
+            Ok(url) => self.render(&url, writer),
             Err(e) => eprintln!("Error performing transformations: {e}"),
         };
     }
 
-    fn process_url_file(&self, path: &Path) {
+    fn process_url_file<W: Write>(&self, path: &Path, writer: &mut W) {
         let file = match File::open(path) {
             Ok(file) => file,
             Err(e) => {
@@ -144,7 +144,7 @@ impl<'a> Processor<'a> {
         let file = BufReader::new(file);
         for line in file.lines() {
             match line {
-                Ok(line) => self.process_url(&line),
+                Ok(line) => self.process_url(&line, writer),
                 Err(e) => {
                     eprintln!("Failed to read file: {e}");
                     exit(1);
@@ -160,15 +160,11 @@ impl<'a> Processor<'a> {
         Ok(url)
     }
 
-    fn render(&self, url: &Url) {
-        match self.renderer.render(url) {
-            Ok(rendered) => {
-                println!("{rendered}");
-            }
-            Err(e) => {
-                eprintln!("Rendering failed: {e}");
-            }
+    fn render<W: Write>(&self, url: &Url, writer: &mut W) {
+        if let Err(e) = self.renderer.render(url, writer) {
+            eprintln!("Rendering failed: {e}");
         }
+        let _ = writeln!(writer);
     }
 }
 
@@ -180,9 +176,10 @@ fn main() {
     };
     let transformations = build_transformations(&cli);
     let processor = Processor { renderer, transformations };
+    let mut stdout = BufWriter::new(io::stdout().lock());
     match (&cli.input.url, &cli.input.urls_file_path) {
-        (Some(url), _) => processor.process_url(url),
-        (None, Some(path)) => processor.process_url_file(path),
+        (Some(url), _) => processor.process_url(url, &mut stdout),
+        (None, Some(path)) => processor.process_url_file(path, &mut stdout),
         _ => unreachable!(),
     };
 }

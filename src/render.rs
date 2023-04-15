@@ -2,10 +2,7 @@
 
 use runtime_format::{FormatArgs, FormatKey, FormatKeyError};
 use serde::Serialize;
-use std::{
-    borrow::Cow,
-    io::{BufWriter, IntoInnerError, Write},
-};
+use std::{borrow::Cow, io::Write};
 use url::Url;
 
 /// Allows rendering URLs.
@@ -28,18 +25,35 @@ impl<'a> UrlRenderer<'a> {
         Self::Json
     }
 
-    /// Render a URL.
-    pub fn render(&self, url: &Url) -> Result<String, RenderError> {
+    /// Render a URL into the given writer.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// # use std::io::BufWriter;
+    /// # use url::Url;
+    /// # use trustrl::UrlRenderer;
+    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
+    /// let url = Url::parse("https://example.com/foo")?;
+    /// let renderer = UrlRenderer::templated("scheme is {scheme}, path is {path}");
+    ///
+    /// let mut writer = BufWriter::new(Vec::new());
+    /// renderer.render(&url, &mut writer)?;
+    /// assert_eq!(writer.into_inner()?, b"scheme is https, path is /foo");
+    /// # Ok(())
+    /// # }
+    /// ````
+    pub fn render<W: Write>(&self, url: &Url, writer: &mut W) -> Result<(), RenderError> {
         use UrlRenderer::*;
         match self {
-            Template(template) => template.render(url),
-            Json => Self::render_json(url),
+            Template(template) => template.render(url, writer),
+            Json => Self::render_json(url, writer),
         }
     }
 
-    fn render_json(url: &Url) -> Result<String, RenderError> {
-        let serialized = serde_json::to_string(&JsonUrl::from(url))?;
-        Ok(serialized)
+    fn render_json<W: Write>(url: &Url, writer: &mut W) -> Result<(), RenderError> {
+        serde_json::to_writer(writer, &JsonUrl::from(url))?;
+        Ok(())
     }
 }
 
@@ -70,28 +84,11 @@ impl<'a> UrlTemplate<'a> {
     }
 
     /// Use this template to render a URL.
-    ///
-    /// # Example
-    ///
-    /// ```
-    /// # use url::Url;
-    /// # use trustrl::UrlTemplate;
-    /// # fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let url = Url::parse("https://example.com/foo")?;
-    /// let template = UrlTemplate::new("scheme is {scheme}, path is {path}");
-    /// assert_eq!(template.render(&url)?, "scheme is https, path is /foo");
-    /// # Ok(())
-    /// # }
-    /// ````
-    pub fn render(&self, url: &Url) -> Result<String, RenderError> {
+    pub fn render<W: Write>(&self, url: &Url, writer: &mut W) -> Result<(), RenderError> {
         let formatter = UrlFormatter { url };
         let args = FormatArgs::new(self.format, &formatter);
-        let mut writer = BufWriter::new(Vec::new());
         write!(writer, "{args}")?;
-
-        let buffer = writer.into_inner().map_err(IntoInnerError::into_error)?;
-        let formatted = String::from_utf8(buffer).map_err(|_| RenderError::NotUtf8)?;
-        Ok(formatted)
+        Ok(())
     }
 }
 
@@ -101,10 +98,6 @@ pub enum RenderError {
     /// An IO error during the formatting.
     #[error(transparent)]
     Io(#[from] std::io::Error),
-
-    /// The resulting string is not valid utf8.
-    #[error("template produced non-utf8 string")]
-    NotUtf8,
 
     /// JSON serialization failed.
     #[error("JSON serialization failed: {0}")]
@@ -219,6 +212,16 @@ impl<'a> From<&'a Url> for JsonUrl<'a> {
 mod tests {
     use super::*;
     use rstest::rstest;
+    use std::io::BufWriter;
+
+    fn render_to_string(renderer: UrlRenderer, url: &Url) -> Result<String, ()> {
+        let mut writer = BufWriter::new(Vec::new());
+        renderer.render(url, &mut writer).map_err(|_| ())?;
+
+        let buffer = writer.into_inner().map_err(|_| ())?;
+        let formatted = String::from_utf8(buffer).map_err(|_| ())?;
+        Ok(formatted)
+    }
 
     #[rstest]
     #[case::url("{url}", "http://example.com/hello", "http://example.com/hello")]
@@ -233,8 +236,8 @@ mod tests {
     #[case::fragment("{fragment}", "http://example.com/hello?x=a#potato", "potato")]
     fn templates(#[case] format: &str, #[case] input_url: &str, #[case] expected: &str) {
         let input_url = Url::parse(input_url).expect("invalid input URL");
-        let template = UrlTemplate::new(format);
-        let formatted = template.render(&input_url).expect("formatting failed");
+        let renderer = UrlRenderer::templated(format);
+        let formatted = render_to_string(renderer, &input_url).expect("formatting failed");
         assert_eq!(formatted, expected);
     }
 
@@ -243,8 +246,8 @@ mod tests {
     #[case::broken_format_close("{other")]
     fn invalid_format(#[case] format: &str) {
         let input_url = Url::parse("http://example.com").expect("invalid input URL");
-        let template = UrlTemplate::new(format);
-        let result = template.render(&input_url);
+        let renderer = UrlRenderer::templated(format);
+        let result = render_to_string(renderer, &input_url);
         assert!(result.is_err(), "result was {result:?}");
     }
 }
