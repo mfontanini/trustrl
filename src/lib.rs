@@ -4,11 +4,10 @@
 #![forbid(unsafe_code)]
 
 pub mod parse;
-pub mod template;
+pub mod render;
 pub mod transform;
 
 pub use parse::parse_url;
-pub use template::{RenderError, UrlTemplate};
+pub use render::{RenderError, UrlRenderer, UrlTemplate};
 pub use transform::{TransformError, UrlTransformation};
 pub use url::Url;
-

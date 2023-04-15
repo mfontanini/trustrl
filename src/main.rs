@@ -6,7 +6,7 @@ use std::{
     path::{Path, PathBuf},
     process::exit,
 };
-use trustrl::{parse_url, TransformError, UrlTemplate, UrlTransformation};
+use trustrl::{parse_url, TransformError, UrlRenderer, UrlTransformation};
 use url::Url;
 
 #[derive(Parser)]
@@ -15,8 +15,12 @@ struct Cli {
     input: Input,
 
     /// The template to be used to render the URL.
-    #[clap(short = 't', long, default_value = "{url}")]
+    #[clap(short = 't', long, default_value = "{url}", group = "outputs")]
     template: String,
+
+    /// Output URLs in JSON format.
+    #[clap(short = 'j', long = "to-json", group = "outputs")]
+    output_json: bool,
 
     /// Set the URL's scheme.
     #[clap(short = 's', long)]
@@ -110,7 +114,7 @@ fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
 }
 
 struct Processor<'a> {
-    template: UrlTemplate<'a>,
+    renderer: UrlRenderer<'a>,
     transformations: Vec<UrlTransformation<'a>>,
 }
 
@@ -157,12 +161,12 @@ impl<'a> Processor<'a> {
     }
 
     fn render(&self, url: &Url) {
-        match self.template.render(url) {
+        match self.renderer.render(url) {
             Ok(rendered) => {
                 println!("{rendered}");
             }
             Err(e) => {
-                eprintln!("Template rendering failed: {e}");
+                eprintln!("Rendering failed: {e}");
             }
         }
     }
@@ -170,9 +174,12 @@ impl<'a> Processor<'a> {
 
 fn main() {
     let cli = Cli::parse();
-    let template = UrlTemplate::new(&cli.template);
+    let renderer = match cli.output_json {
+        true => UrlRenderer::json(),
+        false => UrlRenderer::templated(&cli.template),
+    };
     let transformations = build_transformations(&cli);
-    let processor = Processor { template, transformations };
+    let processor = Processor { renderer, transformations };
     match (&cli.input.url, &cli.input.urls_file_path) {
         (Some(url), _) => processor.process_url(url),
         (None, Some(path)) => processor.process_url_file(path),

@@ -1,8 +1,47 @@
 //! URL templates.
 
 use runtime_format::{FormatArgs, FormatKey, FormatKeyError};
-use std::io::{BufWriter, IntoInnerError, Write};
+use serde::Serialize;
+use std::{
+    borrow::Cow,
+    io::{BufWriter, IntoInnerError, Write},
+};
 use url::Url;
+
+/// Allows rendering URLs.
+pub enum UrlRenderer<'a> {
+    /// A renderer based on a template.
+    Template(UrlTemplate<'a>),
+
+    /// A JSON-based renderer.
+    Json,
+}
+
+impl<'a> UrlRenderer<'a> {
+    /// Constructs a new templated renderer.
+    pub fn templated(format: &'a str) -> Self {
+        Self::Template(UrlTemplate::new(format))
+    }
+
+    /// Construct a JSON-based renderer.
+    pub fn json() -> Self {
+        Self::Json
+    }
+
+    /// Render a URL.
+    pub fn render(&self, url: &Url) -> Result<String, RenderError> {
+        use UrlRenderer::*;
+        match self {
+            Template(template) => template.render(url),
+            Json => Self::render_json(url),
+        }
+    }
+
+    fn render_json(url: &Url) -> Result<String, RenderError> {
+        let serialized = serde_json::to_string(&JsonUrl::from(url))?;
+        Ok(serialized)
+    }
+}
 
 /// A URL template.
 ///
@@ -66,6 +105,10 @@ pub enum RenderError {
     /// The resulting string is not valid utf8.
     #[error("template produced non-utf8 string")]
     NotUtf8,
+
+    /// JSON serialization failed.
+    #[error("JSON serialization failed: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 struct UrlFormatter<'a> {
@@ -133,6 +176,41 @@ impl<'a> PortFormatter<'a> {
             "gopher" => Some(70),
             "rtmp" | "rtmpe" => Some(1935),
             _ => None,
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct JsonUrl<'a> {
+    url: &'a str,
+    scheme: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    host: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    port: Option<u16>,
+    path: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    query: Option<&'a str>,
+    params: Vec<JsonQueryParam<'a>>,
+}
+
+#[derive(Serialize)]
+struct JsonQueryParam<'a> {
+    key: Cow<'a, str>,
+    value: Cow<'a, str>,
+}
+
+impl<'a> From<&'a Url> for JsonUrl<'a> {
+    fn from(url: &'a Url) -> Self {
+        let params: Vec<_> = url.query_pairs().map(|(key, value)| JsonQueryParam { key, value }).collect();
+        JsonUrl {
+            url: url.as_str(),
+            scheme: url.scheme(),
+            host: url.host_str(),
+            port: PortFormatter::new(url).port(),
+            path: url.path(),
+            query: url.query(),
+            params,
         }
     }
 }
