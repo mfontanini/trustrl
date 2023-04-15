@@ -178,6 +178,10 @@ struct JsonUrl<'a> {
     url: &'a str,
     scheme: &'a str,
     #[serde(skip_serializing_if = "Option::is_none")]
+    user: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    password: Option<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     host: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     port: Option<u16>,
@@ -196,8 +200,11 @@ struct JsonQueryParam<'a> {
 impl<'a> From<&'a Url> for JsonUrl<'a> {
     fn from(url: &'a Url) -> Self {
         let params: Vec<_> = url.query_pairs().map(|(key, value)| JsonQueryParam { key, value }).collect();
+        let user = if url.username().is_empty() { None } else { Some(url.username()) };
         JsonUrl {
             url: url.as_str(),
+            user,
+            password: url.password(),
             scheme: url.scheme(),
             host: url.host_str(),
             port: PortFormatter::new(url).port(),
