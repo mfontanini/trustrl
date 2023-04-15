@@ -1,7 +1,6 @@
 //! Parsing utilities.
 
 use std::borrow::Cow;
-
 use url::Url;
 
 /// Parse a URL.

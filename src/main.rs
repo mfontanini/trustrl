@@ -1,13 +1,18 @@
-use std::iter;
-
-use clap::{error::ErrorKind, CommandFactory, Parser};
+use clap::{error::ErrorKind, Args, CommandFactory, Parser};
+use std::{
+    fs::File,
+    io::{BufRead, BufReader},
+    iter,
+    path::{Path, PathBuf},
+    process::exit,
+};
 use trustrl::{parse_url, TransformError, UrlTemplate, UrlTransformation};
 use url::Url;
 
 #[derive(Parser)]
 struct Cli {
-    /// The URL to be used.
-    url: String,
+    #[clap(flatten)]
+    input: Input,
 
     /// The template to be used to render the URL.
     #[clap(short = 't', long, default_value = "{url}")]
@@ -58,6 +63,17 @@ struct Cli {
     clear_query_string: bool,
 }
 
+#[derive(Args)]
+#[group(required = true, multiple = false)]
+struct Input {
+    /// The URL to be used.
+    url: Option<String>,
+
+    /// A path to a list of URLs to process.
+    #[clap(long)]
+    urls_file_path: Option<PathBuf>,
+}
+
 #[cfg(test)]
 mod test {
     use super::Cli;
@@ -93,37 +109,73 @@ fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
         .collect()
 }
 
-fn transform(mut url: Url, transformations: Vec<UrlTransformation>) -> Result<Url, TransformError> {
-    for transformation in transformations {
-        url = transformation.apply(url)?
-    }
-    Ok(url)
+struct Processor<'a> {
+    template: UrlTemplate<'a>,
+    transformations: Vec<UrlTransformation<'a>>,
 }
 
-fn render(url: &Url, template: &UrlTemplate) {
-    match template.render(url) {
-        Ok(rendered) => {
-            println!("{rendered}");
+impl<'a> Processor<'a> {
+    fn process_url(&self, url: &str) {
+        let url = match parse_url(url) {
+            Ok(url) => url,
+            Err(e) => {
+                let mut cmd = Cli::command();
+                cmd.error(ErrorKind::ValueValidation, format!("Invalid URL: {e}")).exit();
+            }
+        };
+        match self.transform(url) {
+            Ok(url) => self.render(&url),
+            Err(e) => eprintln!("Error performing transformations: {e}"),
+        };
+    }
+
+    fn process_url_file(&self, path: &Path) {
+        let file = match File::open(path) {
+            Ok(file) => file,
+            Err(e) => {
+                let mut cmd = Cli::command();
+                cmd.error(ErrorKind::ValueValidation, format!("Invalid URL file path: {e}")).exit();
+            }
+        };
+        let file = BufReader::new(file);
+        for line in file.lines() {
+            match line {
+                Ok(line) => self.process_url(&line),
+                Err(e) => {
+                    eprintln!("Failed to read file: {e}");
+                    exit(1);
+                }
+            };
         }
-        Err(e) => {
-            eprintln!("Template rendering failed: {e}");
+    }
+
+    fn transform(&self, mut url: Url) -> Result<Url, TransformError> {
+        for transformation in &self.transformations {
+            url = transformation.apply(url)?
+        }
+        Ok(url)
+    }
+
+    fn render(&self, url: &Url) {
+        match self.template.render(url) {
+            Ok(rendered) => {
+                println!("{rendered}");
+            }
+            Err(e) => {
+                eprintln!("Template rendering failed: {e}");
+            }
         }
     }
 }
 
 fn main() {
     let cli = Cli::parse();
-    let url = match parse_url(&cli.url) {
-        Ok(url) => url,
-        Err(e) => {
-            let mut cmd = Cli::command();
-            cmd.error(ErrorKind::ValueValidation, format!("Invalid URL: {e}")).exit();
-        }
-    };
     let template = UrlTemplate::new(&cli.template);
     let transformations = build_transformations(&cli);
-    match transform(url, transformations) {
-        Ok(url) => render(&url, &template),
-        Err(e) => eprintln!("Error performing transformations: {e}"),
+    let processor = Processor { template, transformations };
+    match (&cli.input.url, &cli.input.urls_file_path) {
+        (Some(url), _) => processor.process_url(url),
+        (None, Some(path)) => processor.process_url_file(path),
+        _ => unreachable!(),
     };
 }
