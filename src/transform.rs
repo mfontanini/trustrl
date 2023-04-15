@@ -40,10 +40,13 @@ pub enum UrlTransformation<'a> {
     AppendPath(&'a str),
 
     /// Append a new query string key/value pair.
-    AppendQuery(&'a str, &'a str),
+    AppendQueryString(&'a str, &'a str),
 
     /// Sort the query string.
     SortQueryString,
+
+    /// Reset the query string.
+    ClearQueryString,
 }
 
 impl<'a> UrlTransformation<'a> {
@@ -99,10 +102,13 @@ impl<'a> UrlTransformation<'a> {
                 segments.push(path);
                 drop(segments);
             }
-            AppendQuery(name, value) => {
+            AppendQueryString(name, value) => {
                 url.query_pairs_mut().append_pair(name, value);
             }
             SortQueryString => url = Self::sort_query_string(url),
+            ClearQueryString => {
+                url.set_query(None);
+            }
         };
         Ok(url)
     }
@@ -161,6 +167,7 @@ mod tests {
     #[case::no_password(SetPassword(None), "http://me:secret@foo.com", "http://me@foo.com/")]
     #[case::fragment(SetFragment(Some("needle")), "http://foo.com/hello", "http://foo.com/hello#needle")]
     #[case::no_fragment(SetFragment(None), "http://foo.com/hello#needle", "http://foo.com/hello")]
+    #[case::no_fragment(ClearQueryString, "http://foo.com/hello?a=1&b=2#id", "http://foo.com/hello#id")]
     #[case::redirect_relative(Redirect("potato"), "http://foo.com/bar/zar", "http://foo.com/bar/potato")]
     #[case::redirect_absolute(Redirect("/potato"), "http://foo.com/bar/zar", "http://foo.com/potato")]
     #[case::append_path(AppendPath("potato"), "http://foo.com/bar", "http://foo.com/bar/potato")]
@@ -169,14 +176,14 @@ mod tests {
         "http://foo.com/bar",
         "http://foo.com/bar/potato%20nuggets"
     )]
-    #[case::append_query(AppendQuery("side", "potato"), "http://foo.com/bar", "http://foo.com/bar?side=potato")]
+    #[case::append_query(AppendQueryString("side", "potato"), "http://foo.com/bar", "http://foo.com/bar?side=potato")]
     #[case::append_query_existing(
-        AppendQuery("side", "potato"),
+        AppendQueryString("side", "potato"),
         "http://foo.com/bar?q=a",
         "http://foo.com/bar?q=a&side=potato"
     )]
     #[case::append_query_repeated(
-        AppendQuery("side", "potato"),
+        AppendQueryString("side", "potato"),
         "http://foo.com/bar?side=nuggets",
         "http://foo.com/bar?side=nuggets&side=potato"
     )]

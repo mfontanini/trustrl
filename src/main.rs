@@ -52,6 +52,10 @@ struct Cli {
     /// Sort query string.
     #[clap(short = 'q', long)]
     sort_query_string: bool,
+
+    /// Clear the query string.
+    #[clap(short = 'c', long)]
+    clear_query_string: bool,
 }
 
 #[cfg(test)]
@@ -84,7 +88,8 @@ fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
         .chain(cli.fragment.as_deref().map(optional_string).map(UrlTransformation::SetFragment).into_iter())
         .chain(cli.redirect.as_deref().map(UrlTransformation::Redirect).into_iter())
         .chain(cli.append_path.as_deref().map(UrlTransformation::AppendPath).into_iter())
-        .chain(cli.sort_query_string.then(|| UrlTransformation::SortQueryString).into_iter())
+        .chain(cli.sort_query_string.then_some(UrlTransformation::SortQueryString).into_iter())
+        .chain(cli.clear_query_string.then_some(UrlTransformation::ClearQueryString).into_iter())
         .collect()
 }
 
