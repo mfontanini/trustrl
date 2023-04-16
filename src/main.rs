@@ -2,9 +2,8 @@ use clap::{error::ErrorKind, Args, CommandFactory, Parser};
 use regex::Regex;
 use std::{
     fs::File,
-    io::{self, BufRead, BufReader, BufWriter, Write},
+    io::{self, stdin, BufRead, BufReader, Write},
     iter,
-    path::{Path, PathBuf},
     process::exit,
 };
 use trustrl::{parse_url, TransformError, UrlRenderer, UrlTransformation};
@@ -84,7 +83,7 @@ struct Input {
 
     /// A path to a list of URLs to process.
     #[clap(long)]
-    urls_path: Option<PathBuf>,
+    urls_path: Option<String>,
 }
 
 #[cfg(test)]
@@ -202,16 +201,22 @@ impl<'a, W: Write> Processor<'a, W> {
         };
     }
 
-    fn process_url_file(&mut self, path: &Path) {
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(e) => {
-                let mut cmd = Cli::command();
-                cmd.error(ErrorKind::ValueValidation, format!("Invalid URL file path: {e}")).exit();
+    fn process_urls_file(&mut self, path: &str) {
+        if path == "-" {
+            self.process_urls(stdin().lock());
+        } else {
+            match File::open(path) {
+                Ok(file) => self.process_urls(BufReader::new(file)),
+                Err(e) => {
+                    let mut cmd = Cli::command();
+                    cmd.error(ErrorKind::ValueValidation, format!("Invalid URL file path: {e}")).exit();
+                }
             }
-        };
-        let file = BufReader::new(file);
-        for line in file.lines() {
+        }
+    }
+
+    fn process_urls<R: BufRead>(&mut self, reader: R) {
+        for line in reader.lines() {
             match line {
                 Ok(line) => self.process_url(&line),
                 Err(e) => {
@@ -243,7 +248,7 @@ fn main() {
         false => UrlRenderer::templated(&cli.template),
     };
     let transformations = build_transformations(&cli);
-    let stdout = BufWriter::new(io::stdout().lock());
+    let stdout = io::stdout().lock();
     let render_json_list = cli.output_json && cli.input.urls_path.is_some();
     let context = match render_json_list {
         true => RenderContext::new_json_list(renderer, stdout),
@@ -252,7 +257,7 @@ fn main() {
     let mut processor = Processor::new(context, transformations);
     match (&cli.input.url, &cli.input.urls_path) {
         (Some(url), _) => processor.process_url(url),
-        (None, Some(path)) => processor.process_url_file(path),
+        (None, Some(path)) => processor.process_urls_file(path),
         _ => unreachable!(),
     };
 }
