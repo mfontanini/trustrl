@@ -58,6 +58,10 @@ struct Cli {
     #[clap(short = 'a', long, group = "paths")]
     append_path: Option<String>,
 
+    /// Append a new query string pair.
+    #[clap(short = 'q', long)]
+    append_query_string: Vec<String>,
+
     /// Clear the query string.
     #[clap(short = 'c', long, group = "query-strings")]
     clear_query_string: bool,
@@ -71,7 +75,7 @@ struct Cli {
     deny_query_string: Vec<Regex>,
 
     /// Sort query string.
-    #[clap(short = 'q', long)]
+    #[clap(long)]
     sort_query_string: bool,
 }
 
@@ -113,6 +117,18 @@ fn optional_vec<T>(value: Vec<T>) -> Option<Vec<T>> {
     }
 }
 
+fn parse_append_query_strings(inputs: &[String]) -> Vec<UrlTransformation> {
+    let mut transformations = Vec::new();
+    for input in inputs {
+        let (key, value) = match input.split_once('=') {
+            Some((key, value)) => (key, value),
+            None => (input.as_str(), ""),
+        };
+        transformations.push(UrlTransformation::AppendQueryString(key, value));
+    }
+    transformations
+}
+
 fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
     iter::empty()
         .chain(cli.scheme.as_deref().map(UrlTransformation::SetScheme).into_iter())
@@ -127,6 +143,7 @@ fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
         .chain(cli.clear_query_string.then_some(UrlTransformation::ClearQueryString).into_iter())
         .chain(optional_vec(cli.allow_query_string.clone()).map(UrlTransformation::AllowQueryString).into_iter())
         .chain(optional_vec(cli.deny_query_string.clone()).map(UrlTransformation::DenyQueryString).into_iter())
+        .chain(parse_append_query_strings(&cli.append_query_string))
         .chain(cli.sort_query_string.then_some(UrlTransformation::SortQueryString).into_iter())
         .collect()
 }
