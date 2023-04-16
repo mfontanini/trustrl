@@ -142,11 +142,7 @@ impl<'a> PortFormatter<'a> {
     }
 
     fn port(&self) -> Option<u16> {
-        if let Some(port) = self.url.port() {
-            Some(port)
-        } else {
-            Self::scheme_port(self.url.scheme())
-        }
+        if let Some(port) = self.url.port() { Some(port) } else { Self::scheme_port(self.url.scheme()) }
     }
 
     fn scheme_port(scheme: &str) -> Option<u16> {

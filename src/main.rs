@@ -1,4 +1,5 @@
 use clap::{error::ErrorKind, Args, CommandFactory, Parser};
+use regex::Regex;
 use std::{
     fs::File,
     io::{self, BufRead, BufReader, BufWriter, Write},
@@ -58,13 +59,21 @@ struct Cli {
     #[clap(short = 'a', long, group = "paths")]
     append_path: Option<String>,
 
+    /// Clear the query string.
+    #[clap(short = 'c', long, group = "query-strings")]
+    clear_query_string: bool,
+
+    /// Keep the query string keys that match this regex.
+    #[clap(long, group = "query-strings")]
+    allow_query_string: Vec<Regex>,
+
+    /// Remove the query string keys that match this regex.
+    #[clap(long, group = "query-strings")]
+    deny_query_string: Vec<Regex>,
+
     /// Sort query string.
     #[clap(short = 'q', long)]
     sort_query_string: bool,
-
-    /// Clear the query string.
-    #[clap(short = 'c', long)]
-    clear_query_string: bool,
 }
 
 #[derive(Args)]
@@ -75,7 +84,7 @@ struct Input {
 
     /// A path to a list of URLs to process.
     #[clap(long)]
-    urls_file_path: Option<PathBuf>,
+    urls_path: Option<PathBuf>,
 }
 
 #[cfg(test)]
@@ -97,6 +106,14 @@ fn optional_string(value: &str) -> Option<&str> {
     }
 }
 
+fn optional_vec<T>(value: Vec<T>) -> Option<Vec<T>> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
 fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
     iter::empty()
         .chain(cli.scheme.as_deref().map(UrlTransformation::SetScheme).into_iter())
@@ -108,8 +125,10 @@ fn build_transformations(cli: &Cli) -> Vec<UrlTransformation> {
         .chain(cli.fragment.as_deref().map(optional_string).map(UrlTransformation::SetFragment).into_iter())
         .chain(cli.redirect.as_deref().map(UrlTransformation::Redirect).into_iter())
         .chain(cli.append_path.as_deref().map(UrlTransformation::AppendPath).into_iter())
-        .chain(cli.sort_query_string.then_some(UrlTransformation::SortQueryString).into_iter())
         .chain(cli.clear_query_string.then_some(UrlTransformation::ClearQueryString).into_iter())
+        .chain(optional_vec(cli.allow_query_string.clone()).map(UrlTransformation::AllowQueryString).into_iter())
+        .chain(optional_vec(cli.deny_query_string.clone()).map(UrlTransformation::DenyQueryString).into_iter())
+        .chain(cli.sort_query_string.then_some(UrlTransformation::SortQueryString).into_iter())
         .collect()
 }
 
@@ -225,13 +244,13 @@ fn main() {
     };
     let transformations = build_transformations(&cli);
     let stdout = BufWriter::new(io::stdout().lock());
-    let render_json_list = cli.output_json && cli.input.urls_file_path.is_some();
+    let render_json_list = cli.output_json && cli.input.urls_path.is_some();
     let context = match render_json_list {
         true => RenderContext::new_json_list(renderer, stdout),
         false => RenderContext::new_single_line(renderer, stdout),
     };
     let mut processor = Processor::new(context, transformations);
-    match (&cli.input.url, &cli.input.urls_file_path) {
+    match (&cli.input.url, &cli.input.urls_path) {
         (Some(url), _) => processor.process_url(url),
         (None, Some(path)) => processor.process_url_file(path),
         _ => unreachable!(),

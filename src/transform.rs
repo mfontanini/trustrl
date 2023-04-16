@@ -1,5 +1,6 @@
 //! URL transformations.
 
+use regex::Regex;
 use url::{ParseError, Url};
 
 /// A URL transformation.
@@ -47,6 +48,12 @@ pub enum UrlTransformation<'a> {
 
     /// Reset the query string.
     ClearQueryString,
+
+    /// Keep only the query string keys that match these regexes.
+    AllowQueryString(Vec<Regex>),
+
+    /// Remove the the query string keys that match these regexes.
+    DenyQueryString(Vec<Regex>),
 }
 
 impl<'a> UrlTransformation<'a> {
@@ -68,13 +75,13 @@ impl<'a> UrlTransformation<'a> {
     pub fn apply(&self, mut url: Url) -> Result<Url, TransformError> {
         use TransformError::*;
         use UrlTransformation::*;
-        match *self {
+        match self {
             SetScheme(scheme) => url = Self::set_scheme(url, scheme)?,
             SetHost(host) => {
                 url.set_host(Some(host)).map_err(|e| Parse("host", e))?;
             }
             SetPort(port) => {
-                url.set_port(Some(port)).map_err(|_| Transform("port"))?;
+                url.set_port(Some(*port)).map_err(|_| Transform("port"))?;
             }
             SetPath(path) => {
                 url.set_path(path);
@@ -83,10 +90,10 @@ impl<'a> UrlTransformation<'a> {
                 url.set_username(user).map_err(|_| Transform("user"))?;
             }
             SetPassword(password) => {
-                url.set_password(password).map_err(|_| Transform("password"))?;
+                url.set_password(*password).map_err(|_| Transform("password"))?;
             }
             SetFragment(fragment) => {
-                url.set_fragment(fragment);
+                url.set_fragment(*fragment);
             }
             Redirect(path) => {
                 if path.as_bytes().first() == Some(&b'/') {
@@ -105,9 +112,15 @@ impl<'a> UrlTransformation<'a> {
             AppendQueryString(name, value) => {
                 url.query_pairs_mut().append_pair(name, value);
             }
-            SortQueryString => url = Self::sort_query_string(url),
+            SortQueryString => url = QueryStringMutator::Sort.mutate(url),
             ClearQueryString => {
                 url.set_query(None);
+            }
+            AllowQueryString(regexes) => {
+                url = QueryStringMutator::Allowlist(regexes).mutate(url);
+            }
+            DenyQueryString(regexes) => {
+                url = QueryStringMutator::Denylist(regexes).mutate(url);
             }
         };
         Ok(url)
@@ -125,16 +138,43 @@ impl<'a> UrlTransformation<'a> {
         let url = format!("{scheme}:{rest}");
         Url::parse(&url).map_err(|_| Transform("scheme"))
     }
+}
 
-    fn sort_query_string(mut url: Url) -> Url {
+enum QueryStringMutator<'a> {
+    Sort,
+    Allowlist(&'a [Regex]),
+    Denylist(&'a [Regex]),
+}
+
+impl<'a> QueryStringMutator<'a> {
+    fn mutate(&self, mut url: Url) -> Url {
         let mut key_values: Vec<_> = url.query_pairs().into_owned().collect();
+        use QueryStringMutator::*;
+        let key_values = match self {
+            Sort => {
+                key_values.sort();
+                key_values
+            }
+            Allowlist(regexes) => Self::apply_allowlist(regexes, key_values),
+            Denylist(regexes) => Self::apply_denylist(regexes, key_values),
+        };
         // This otherwise creates an empty query string.
         if key_values.is_empty() {
+            url.set_query(None);
             return url;
         }
-        key_values.sort();
         url.query_pairs_mut().clear().extend_pairs(key_values.into_iter()).finish();
         url
+    }
+
+    fn apply_allowlist(regexes: &[Regex], mut key_values: Vec<(String, String)>) -> Vec<(String, String)> {
+        key_values.retain(|(key, _)| regexes.iter().any(|r| r.is_match(key)));
+        key_values
+    }
+
+    fn apply_denylist(regexes: &[Regex], mut key_values: Vec<(String, String)>) -> Vec<(String, String)> {
+        key_values.retain(|(key, _)| !regexes.iter().any(|r| r.is_match(key)));
+        key_values
     }
 }
 
@@ -189,6 +229,16 @@ mod tests {
     )]
     #[case::sort_query_string(SortQueryString, "http://foo.com/bar?b=1&a=2&c=3", "http://foo.com/bar?a=2&b=1&c=3")]
     #[case::sort_empty_query_string(SortQueryString, "http://foo.com/", "http://foo.com/")]
+    #[case::allow_query_string(
+        AllowQueryString(vec![Regex::new("^yep.*").unwrap(), Regex::new("^yes.*").unwrap()]),
+        "http://foo.com/?yes=1&yes_sir=2&yep=42&nope=1337",
+        "http://foo.com/?yes=1&yes_sir=2&yep=42"
+    )]
+    #[case::deny_query_string(
+        DenyQueryString(vec![Regex::new("^nope.*").unwrap(), Regex::new("^no.*").unwrap()]),
+        "http://foo.com/?yes=1&yep=42&nope=1337&no=1337",
+        "http://foo.com/?yes=1&yep=42"
+    )]
     fn transformations(#[case] transformation: UrlTransformation, #[case] input_url: &str, #[case] expected_url: &str) {
         let input_url = Url::parse(input_url).expect("invalid input url");
 
