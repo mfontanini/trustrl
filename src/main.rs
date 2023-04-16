@@ -10,6 +10,7 @@ use trustrl::{parse_url, TransformError, UrlRenderer, UrlTransformation};
 use url::Url;
 
 #[derive(Parser)]
+#[clap(version, about)]
 struct Cli {
     #[clap(flatten)]
     input: Input,
