@@ -116,7 +116,7 @@ Options:
   -a, --append-path <APPEND_PATH>
           Append a new segment at the end of the path
   -q, --append-query-string <APPEND_QUERY_STRING>
-          Append a new query string pair
+          Append a new query string pair, using format `<key>[=<value>]`
   -c, --clear-query-string
           Clear the query string
       --allow-query-string <ALLOW_QUERY_STRING>

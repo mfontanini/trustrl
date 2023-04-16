@@ -58,7 +58,7 @@ struct Cli {
     #[clap(short = 'a', long, group = "paths")]
     append_path: Option<String>,
 
-    /// Append a new query string pair.
+    /// Append a new query string pair, using format `<key>[=<value>]`.
     #[clap(short = 'q', long)]
     append_query_string: Vec<String>,
 
