@@ -177,6 +177,13 @@ impl<'a, W: Write> Drop for RenderContext<'a, W> {
     }
 }
 
+macro_rules! exit {
+    ($arg:tt) => {
+        eprintln!($arg);
+        exit(1);
+    };
+}
+
 struct Processor<'a, W: Write> {
     context: RenderContext<'a, W>,
     transformations: Vec<UrlTransformation<'a>>,
@@ -191,8 +198,7 @@ impl<'a, W: Write> Processor<'a, W> {
         let url = match parse_url(url) {
             Ok(url) => url,
             Err(e) => {
-                let mut cmd = Cli::command();
-                cmd.error(ErrorKind::ValueValidation, format!("Invalid URL: {e}")).exit();
+                exit!("Invalid URL '{url}': {e}");
             }
         };
         match self.transform(url) {
@@ -220,8 +226,7 @@ impl<'a, W: Write> Processor<'a, W> {
             match line {
                 Ok(line) => self.process_url(&line),
                 Err(e) => {
-                    eprintln!("Failed to read file: {e}");
-                    exit(1);
+                    exit!("Failed to read input: {e}");
                 }
             };
         }

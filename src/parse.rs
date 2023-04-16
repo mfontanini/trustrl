@@ -35,7 +35,7 @@ pub fn parse_url(url: &str) -> Result<Url, UrlParseError> {
 
 /// An error during the parsing of a URL.
 #[derive(Debug, thiserror::Error)]
-#[error("Invalid URL: {0}")]
+#[error("{0}")]
 pub struct UrlParseError(Cow<'static, str>);
 
 #[cfg(test)]
