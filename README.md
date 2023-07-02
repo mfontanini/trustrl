@@ -79,6 +79,7 @@ The keys supported in the template string are:
 * password
 * path
 * query
+* `query:parameter_name`
 * fragment
 
 # Help

@@ -1,5 +1,6 @@
 //! URL rendering.
 
+use core::fmt::Formatter;
 use runtime_format::{FormatArgs, FormatKey, FormatKeyError};
 use serde::Serialize;
 use std::{borrow::Cow, io::Write};
@@ -108,16 +109,27 @@ struct UrlFormatter<'a> {
     url: &'a Url,
 }
 
-impl<'a> FormatKey for UrlFormatter<'a> {
-    fn fmt(&self, key: &str, f: &mut core::fmt::Formatter<'_>) -> Result<(), FormatKeyError> {
-        if key == "port" {
-            let output = match PortFormatter::new(self.url).port() {
-                Some(port) => write!(f, "{port}"),
-                None => write!(f, ""),
-            };
-            return output.map_err(FormatKeyError::Fmt);
+impl<'a> UrlFormatter<'a> {
+    fn format_port(&self, f: &mut Formatter<'_>) -> Result<(), FormatKeyError> {
+        let output = match PortFormatter::new(self.url).port() {
+            Some(port) => write!(f, "{port}"),
+            None => write!(f, ""),
+        };
+        output.map_err(FormatKeyError::Fmt)
+    }
+
+    fn format_query_parameter(&self, name: &str, f: &mut Formatter<'_>) -> Result<(), FormatKeyError> {
+        if name.is_empty() {
+            return Err(FormatKeyError::UnknownKey);
         }
-        let value = match key {
+        // Try to find this value, default to "" if not found.
+        let value =
+            self.url.query_pairs().find_map(|(key, value)| (key == name).then_some(value)).unwrap_or(Cow::Borrowed(""));
+        write!(f, "{}", value).map_err(FormatKeyError::Fmt)
+    }
+
+    fn format_url_component(&self, component: &str, f: &mut Formatter<'_>) -> Result<(), FormatKeyError> {
+        let value = match component {
             "url" => self.url.as_str(),
             "scheme" => self.url.scheme(),
             "host" => self.url.host_str().unwrap_or(""),
@@ -132,6 +144,18 @@ impl<'a> FormatKey for UrlFormatter<'a> {
     }
 }
 
+impl<'a> FormatKey for UrlFormatter<'a> {
+    fn fmt(&self, key: &str, f: &mut Formatter<'_>) -> Result<(), FormatKeyError> {
+        if key == "port" {
+            self.format_port(f)
+        } else if let Some((_, name)) = key.split_once("query:") {
+            self.format_query_parameter(name, f)
+        } else {
+            self.format_url_component(key, f)
+        }
+    }
+}
+
 struct PortFormatter<'a> {
     url: &'a Url,
 }
@@ -142,7 +166,11 @@ impl<'a> PortFormatter<'a> {
     }
 
     fn port(&self) -> Option<u16> {
-        if let Some(port) = self.url.port() { Some(port) } else { Self::scheme_port(self.url.scheme()) }
+        if let Some(port) = self.url.port() {
+            Some(port)
+        } else {
+            Self::scheme_port(self.url.scheme())
+        }
     }
 
     fn scheme_port(scheme: &str) -> Option<u16> {
@@ -236,6 +264,8 @@ mod tests {
     #[case::password("{password}", "http://foo:bar@example.com/hello", "bar")]
     #[case::path("{path}", "http://example.com/hello", "/hello")]
     #[case::query("{query}", "http://example.com/hello?x=a", "x=a")]
+    #[case::query_specific("{query:x}", "http://example.com/hello?x=a", "a")]
+    #[case::query_specific_undefined("{query:nope}", "http://example.com/hello?x=a", "")]
     #[case::fragment("{fragment}", "http://example.com/hello?x=a#potato", "potato")]
     fn templates(#[case] format: &str, #[case] input_url: &str, #[case] expected: &str) {
         let input_url = Url::parse(input_url).expect("invalid input URL");
@@ -247,6 +277,7 @@ mod tests {
     #[rstest]
     #[case::unknown_key("{other}")]
     #[case::broken_format_close("{other")]
+    #[case::query_specific_empty("{query:}")]
     fn invalid_format(#[case] format: &str) {
         let input_url = Url::parse("http://example.com").expect("invalid input URL");
         let renderer = UrlRenderer::templated(format);
