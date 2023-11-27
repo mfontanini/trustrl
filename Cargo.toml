@@ -4,6 +4,8 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Matias Fontanini"]
 description = "A URL manipulation tool"
+repository = "https://github.com/mfontanini/trustrl"
+license = "BSD-2-Clause"
 
 [dependencies]
 clap = { version = "4.2.1", features = ["derive"] }
