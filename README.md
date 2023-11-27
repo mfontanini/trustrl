@@ -9,9 +9,16 @@ manipulate URLs so I rewrote it in Rust. While I was initially going to make thi
 API, I ended up making a few changes along the way. While the functionality of both tools is almost identical, their 
 APIs differ a bit.
 
-# Compiling
+# Installing
 
-Download [Rust](https://www.rust-lang.org/learn/get-started) and run:
+In order to install `trustrl`, download [Rust](https://www.rust-lang.org/learn/get-started) and run:
+
+```rust
+cargo install trustrl
+```
+
+## Building from source
+
 
 ```shell
 cargo build --release
